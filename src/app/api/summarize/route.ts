@@ -1,22 +1,30 @@
-
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import {franc} from 'franc';
+import { franc } from 'franc';
 
+// Define the expected body shape
+interface SummarizeRequestBody {
+  notes?: string;
+}
+
+// POST handler
 export async function POST(req: NextRequest) {
   let notes: string | undefined;
+
   try {
-    const body = await req.json();
+    const body: SummarizeRequestBody = await req.json();
     notes = body?.notes;
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
+
   if (!notes) return NextResponse.json({ error: 'Notes required' }, { status: 400 });
 
-  const langCode = franc(notes, { minLength: 3 }) || 'eng';
+  // Detect language using franc, fallback to French ('fra') by default
+  const langCode = franc(notes, { minLength: 3 }) || 'fra';
 
   // Define prompts per language
-  const prompts: { [key: string]: string } = {
+  const prompts: Record<string, string> = {
     fra: `Vous êtes un assistant IA pour résumer des notes de réunion.
 Répondez en français en markdown.
 - Décisions clés
@@ -24,6 +32,7 @@ Répondez en français en markdown.
 - Résumé concis (max 5 phrases)
 
 Notes : """${notes}"""`,
+
     eng: `You are an AI assistant to summarize meeting notes.
 Respond in English in markdown.
 - Key decisions
@@ -31,6 +40,7 @@ Respond in English in markdown.
 - Concise summary (max 5 sentences)
 
 Notes: """${notes}"""`,
+
     spa: `Eres un asistente de IA para resumir notas de reunión.
 Responde en español en markdown.
 - Decisiones clave
@@ -38,20 +48,34 @@ Responde en español en markdown.
 - Resumen conciso (máximo 5 frases)
 
 Notas: """${notes}"""`,
+
+    deu: `Sie sind ein KI-Assistent zur Zusammenfassung von Besprechungsnotizen.
+Antworten Sie auf Deutsch in Markdown.
+- Wichtige Entscheidungen
+- Hauptaktionspunkte
+- Knackige Zusammenfassung (maximal 5 Sätze)
+
+Notizen: """${notes}"""`,
   };
 
-  const prompt = prompts[langCode] || prompts['eng'];
+  // Use prompt for detected language, fallback to French
+  const prompt = prompts[langCode] ?? prompts['fra'];
 
   try {
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? '');
     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
     const result = await model.generateContent(prompt);
-    const summary = result?.response?.text?.();
+
+    // Safely access the summary text
+    const summary: string | undefined = result?.response?.text?.();
+
     if (!summary) {
       return NextResponse.json({ error: 'AI summarization failed' }, { status: 500 });
     }
     return NextResponse.json({ summary });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Server error' }, { status: 500 });
+  } catch (e) {
+    // Use unknown type and type guard for error
+    const err = e as Error;
+    return NextResponse.json({ error: err.message ?? 'Server error' }, { status: 500 });
   }
 }
